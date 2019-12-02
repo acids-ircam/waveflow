@@ -9,12 +9,16 @@ class Debugger:
             print(msg)
 
 class ResidualBlock(nn.Module, Debugger):
-    def __init__(self, dilation):
+    def __init__(self, dilation, debug=False):
         super().__init__()
+        self.debug = debug
+
         total_size = (hp.kernel_size - 1) * dilation + 1
         padding_h  = total_size - 1
         padding_w  = total_size // 2
-        print(dilation, total_size, padding_h, padding_w)
+
+        self.debug_msg([dilation, total_size, padding_h, padding_w])
+
         self.initial_conv = nn.Conv2d(hp.res_size, hp.hidden_size * 2,
                                       hp.kernel_size, dilation=dilation,
                                       padding=(padding_h, padding_w))
@@ -47,7 +51,7 @@ class ResidualStack(nn.Module, Debugger):
         self.first_conv = nn.Conv2d(hp.in_size, hp.res_size, 1)
 
         self.stack = nn.ModuleList([
-            ResidualBlock(2**i) for i in np.arange(hp.n_layer) % hp.cycle_size
+            ResidualBlock(2**i, debug) for i in np.arange(hp.n_layer) % hp.cycle_size
         ])
 
         self.last_convs = nn.Sequential(
@@ -115,5 +119,5 @@ class WaveFlow(nn.Module, Debugger):
 
     def loss(self, x, c):
         z, mean, logvar = self.forward(x,c)
-        loglikelihood = - torch.sum(z ** 2 + .5 * np.log(2*np.pi) + logvar)
+        loglikelihood = - torch.sum(z ** 2 + .5 * np.log(2*np.pi))  + torch.sum(logvar)
         return - loglikelihood
