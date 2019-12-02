@@ -91,6 +91,17 @@ class WaveFlow(nn.Module, Debugger):
         ])
 
         self.debug = debug
+        self.receptive_field = (hp.kernel_size-1)*(sum([2**(i%hp.cycle_size) for i in range(hp.n_layer)])) + 1
+
+        skipped = 0
+        for p in self.parameters():
+            try:
+                nn.init.xavier_normal_(p)
+            except:
+                skipped += 1
+        print(f"Skipped {skipped} parameters during initialisation")
+
+        print(f"Built waveflow with squeezed height {hp.h} and receptive field {self.receptive_field}")
 
     def forward(self, x, c):
         self.debug_msg(f"Squeezing input")
@@ -119,5 +130,5 @@ class WaveFlow(nn.Module, Debugger):
 
     def loss(self, x, c):
         z, _, logvar = self.forward(x,c)
-        loglikelihood = - torch.sum(z ** 2 + .5 * np.log(2*np.pi))  + torch.sum(logvar)
+        loglikelihood = - torch.mean(z ** 2 + .5 * np.log(2*np.pi))  + torch.mean(logvar)
         return - loglikelihood

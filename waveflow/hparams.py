@@ -11,7 +11,7 @@ out_size    = 2
 h           = 16
 n_flow      = 8
 n_layer     = 8
-cycle_size  = 8
+cycle_size  = 1
 
 class build:
     n_fft = 2048

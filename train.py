@@ -35,7 +35,9 @@ def train_step(model, opt_list, step, data_list):
 
 trainer = ct.Trainer(**ct.args.__dict__)
 
-trainer.set_model(lambda : WaveFlow(True))
+debug = False
+
+trainer.set_model(lambda : WaveFlow(debug))
 trainer.setup_model()
 
 trainer.add_optimizer(torch.optim.Adam(trainer.model.parameters()))
