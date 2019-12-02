@@ -118,6 +118,9 @@ class WaveFlow(nn.Module, Debugger):
             self.debug_msg(f"Passing through flow {i}")
             mean, logvar = torch.split(flow(x,c), 1, 1)
             
+            mean = torch.tanh(mean)
+            logvar = torch.clamp(logvar, -7)
+            
             if global_mean is not None and global_logvar is not None:
                 global_mean    = global_mean * torch.exp(logvar) + mean
                 global_logvar  = global_logvar + logvar

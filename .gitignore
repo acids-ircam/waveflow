@@ -1,3 +1,5 @@
 *__pycache__
 *runs
 *notebooks
+*.DS_Store
+*.pth

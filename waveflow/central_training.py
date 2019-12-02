@@ -94,7 +94,7 @@ class Trainer:
 
                 # HYPER CONVERGENCE ############################################
                 if current_step < self.batch_warmup:
-                    data = data[0:, ...]
+                    data = [d[0:,...] for d in data]
                     for opt in self.optim:
                         for p in opt.param_groups:
                             p["lr"] = 1e-1
