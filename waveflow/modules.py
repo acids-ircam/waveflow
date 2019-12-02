@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from . import hparams as hp
 import numpy as np
+from tqdm import tqdm
 
 class Debugger:
     def debug_msg(self, msg):
@@ -99,14 +100,15 @@ class WaveFlow(nn.Module, Debugger):
                 nn.init.xavier_normal_(p)
             except:
                 skipped += 1
-        print(f"Skipped {skipped} parameters during initialisation")
 
+        print(f"Skipped {skipped} parameters during initialisation")
         print(f"Built waveflow with squeezed height {hp.h} and receptive field {self.receptive_field}")
 
-    def forward(self, x, c):
-        self.debug_msg(f"Squeezing input")
-        x = x.reshape(x.shape[0], 1, x.shape[-1] // hp.h, -1).transpose(2,3)
-        c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
+    def forward(self, x, c, squeezed=False):
+        if not squeezed:
+            self.debug_msg(f"Squeezing input")
+            x = x.reshape(x.shape[0], 1, x.shape[-1] // hp.h, -1).transpose(2,3)
+            c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
 
         global_mean    = None
         global_logvar  = None
@@ -132,3 +134,28 @@ class WaveFlow(nn.Module, Debugger):
         z, _, logvar = self.forward(x,c)
         loglikelihood = - torch.mean(z ** 2 + .5 * np.log(2*np.pi))  + torch.mean(logvar)
         return - loglikelihood
+
+    def synthesize(self, c):
+        device = next(self.parameters()).device
+
+        c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3).to(device)
+        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(device)
+        x = torch.zeros_like(z).to(device)
+
+        pad = torch.zeros(1,1,hp.h,1).to(device)
+
+        c = torch.cat([pad.expand_as(c),c], 2)
+        z = torch.cat([pad.expand_as(z),z], 2)
+        x = torch.cat([pad.expand_as(x),x], 2)
+
+        for step in tqdm(range(hp.h)):
+            x_ = x[:,:,step:step+hp.h,:]
+            c_ = c[:,:,step:step+hp.h,:]
+
+            _, mean, logvar = self.forward(x_,c_, squeezed=True)
+
+            x[:,:,hp.h + step,:] = (z[:,:,hp.h + step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
+        
+        x = x[:,:,hp.h:,:].transpose(2,3).reshape(x.shape[0], -1)
+
+        return x

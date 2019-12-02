@@ -1,11 +1,11 @@
 from waveflow import WaveFlow, hp
 import torch
 
-x = torch.randn(1, 2048)
 cdt = torch.randn(1,hp.cdt_size, 2048)
+flow = WaveFlow()
 
-print(x.shape, cdt.shape)
+with torch.no_grad():
+    y = flow.synthesize(cdt)
 
-flow = WaveFlow(True)
+print(y.shape)
 
-print(flow.loss(x,cdt))
