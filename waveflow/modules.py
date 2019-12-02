@@ -118,6 +118,6 @@ class WaveFlow(nn.Module, Debugger):
         return x, global_mean, global_logvar
 
     def loss(self, x, c):
-        z, mean, logvar = self.forward(x,c)
+        z, _, logvar = self.forward(x,c)
         loglikelihood = - torch.sum(z ** 2 + .5 * np.log(2*np.pi))  + torch.sum(logvar)
         return - loglikelihood
