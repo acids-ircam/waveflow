@@ -10,7 +10,7 @@ class SineGen(Dataset):
     def __getitem__(self, i):
         N = 8192
         f0 = 400*np.random.rand(1) + 100
-        x = np.cos(2*np.pi*f0*np.linspace(0,.5,N))
+        x = np.cos(2*np.pi*f0*np.linspace(0,.5,N)) + np.random.randn(N)/10
         
         S = li.feature.melspectrogram(x, hop_length=128, n_fft=2048, win_length=2048, n_mels=80)[...,:N//128]
         S = np.log(S + 1e-3) / 10
