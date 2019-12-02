@@ -117,7 +117,7 @@ class WaveFlow(nn.Module, Debugger):
         for i,flow in enumerate(self.flows):
             self.debug_msg(f"Passing through flow {i}")
             mean, logvar = torch.split(flow(x,c), 1, 1)
-            
+
             mean = torch.tanh(mean)
             logvar = torch.clamp(logvar, -7)
             
@@ -151,7 +151,7 @@ class WaveFlow(nn.Module, Debugger):
         z = torch.cat([pad.expand_as(z),z], 2)
         x = torch.cat([pad.expand_as(x),x], 2)
 
-        for step in tqdm(range(hp.h)):
+        for step in tqdm(range(hp.h), desc="Generating waveform..."):
             x_ = x[:,:,step:step+hp.h,:]
             c_ = c[:,:,step:step+hp.h,:]
 
