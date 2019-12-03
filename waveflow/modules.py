@@ -124,6 +124,9 @@ class WaveFlow(nn.Module, Debugger):
             x = x.reshape(x.shape[0], 1, x.shape[-1] // hp.h, -1).transpose(2,3)
             c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
 
+            x = torch.cat([nn.functional.pad(x, (1,0), "constant", 0)[...,:-1],x], 2)
+            c = torch.cat([nn.functional.pad(c, (1,0), "constant", 0)[...,:-1],c], 2)
+
         global_mean    = None
         global_logvar  = None
 
@@ -149,6 +152,12 @@ class WaveFlow(nn.Module, Debugger):
 
     def loss(self, x, c):
         z, mean, logvar = self.forward(x,c)
+        z = z[:,:,hp.h:,:]
+        mean = mean[:,:,hp.h:,:]
+        logvar = logvar[:,:,hp.h:,:]
+
+
+        self.debug_msg(f"z.shape={z.shape}\nmean.shape={mean.shape}\nlogvar.shape={logvar.shape}")
 
         loss = torch.mean(z ** 2 - logvar)
         
@@ -162,8 +171,8 @@ class WaveFlow(nn.Module, Debugger):
     
         z = z * temp
         
-        z = torch.cat([z, nn.functional.pad(z,(1,0),"constant",0)[...,:-1]],2)
-        c = torch.cat([c, nn.functional.pad(c,(1,0),"constant",0)[...,:-1]],2)
+        z = torch.cat([nn.functional.pad(z,(1,0),"constant",0)[...,:-1], z],2)
+        c = torch.cat([nn.functional.pad(c,(1,0),"constant",0)[...,:-1], c],2)
 
         for flow in tqdm(self.flows[::-1], desc="Iterating overs flows"):
             for step in range(hp.h):
