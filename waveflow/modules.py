@@ -22,12 +22,12 @@ class ResidualBlock(nn.Module, Debugger):
 
         self.initial_conv = nn.Conv2d(hp.res_size, hp.hidden_size * 2,
                                       hp.kernel_size, dilation=dilation,
-                                      padding=(padding_h, padding_w))
+                                      padding=(padding_h, padding_w), bias=False)
 
-        self.cdtconv      = nn.Conv2d(hp.cdt_size, hp.hidden_size * 2, 1)
+        self.cdtconv      = nn.Conv2d(hp.cdt_size, hp.hidden_size * 2, 1, bias=False)
         
-        self.resconv      = nn.Conv2d(hp.hidden_size, hp.res_size, 1)
-        self.skipconv     = nn.Conv2d(hp.hidden_size, hp.skp_size, 1)
+        self.resconv      = nn.Conv2d(hp.hidden_size, hp.res_size, 1, bias=False)
+        self.skipconv     = nn.Conv2d(hp.hidden_size, hp.skp_size, 1, bias=False)
 
         self.apply_weight_norm()
 
@@ -58,7 +58,7 @@ class ResidualStack(nn.Module, Debugger):
         super().__init__()
 
         self.first_conv = nn.Conv2d(hp.in_size, hp.res_size, (2,1),
-                                    padding=(2,0))
+                                    padding=(2,0), bias=False)
 
         self.stack = nn.ModuleList([
             ResidualBlock(2**i, debug) for i in np.arange(hp.n_layer) % hp.cycle_size
@@ -66,9 +66,9 @@ class ResidualStack(nn.Module, Debugger):
 
         self.last_convs = nn.Sequential(
             nn.ReLU(),
-            nn.Conv2d(hp.skp_size, hp.skp_size, 1),
+            nn.Conv2d(hp.skp_size, hp.skp_size, 1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(hp.skp_size, hp.out_size, 1)
+            nn.Conv2d(hp.skp_size, hp.out_size, 1, bias=False)
         )
 
         self.debug = debug
@@ -132,8 +132,8 @@ class WaveFlow(nn.Module, Debugger):
             self.debug_msg(f"Passing through flow {i}")
             mean, logvar = torch.split(flow(x,c), 1, 1)
 
-            mean = torch.tanh(mean)
-            logvar = torch.clamp(logvar, -7)
+            #mean = torch.tanh(mean)
+            #logvar = torch.clamp(logvar, -7)
             
             if global_mean is not None and global_logvar is not None:
                 global_mean    = global_mean * torch.exp(logvar) + mean
