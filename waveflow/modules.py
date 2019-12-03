@@ -163,8 +163,10 @@ class WaveFlow(nn.Module, Debugger):
 
         pad = torch.zeros(1,1,hp.h,1).to(device)
 
-        c = torch.cat([pad.expand_as(c),c], 2)
-        z = torch.cat([pad.expand_as(z),z], 2)
+        # C : B x D x H x W
+        c_shift = nn.functional.pad(c, (1,0), "constant", 0)[...,:c.shape[-1]]
+        c = torch.cat([c_shift, c], 2)
+
         x = torch.cat([pad.expand_as(x),x], 2)
 
         for step in tqdm(range(hp.h), desc="Generating waveform..."):
@@ -173,7 +175,7 @@ class WaveFlow(nn.Module, Debugger):
 
             _, mean, logvar = self.forward(x_,c_, squeezed=True)
 
-            x[:,:,hp.h + step,:] = (z[:,:,hp.h + step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
+            x[:,:,hp.h + step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
         
         x = x[:,:,hp.h:,:].transpose(2,3).reshape(x.shape[0], -1)
 
