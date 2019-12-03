@@ -15,14 +15,14 @@ class ResidualBlock(nn.Module, Debugger):
         self.debug = debug
 
         total_size = (hp.kernel_size - 1) * dilation + 1
-        padding_h  = total_size - 1 
-        padding_w  = total_size // 2
+        self.padding_h  = total_size - 1 
+        self.padding_w  = total_size // 2
 
-        self.debug_msg([dilation, total_size, padding_h, padding_w])
+        self.debug_msg([dilation, total_size, self.padding_h, self.padding_w])
 
         self.initial_conv = nn.Conv2d(hp.res_size, hp.hidden_size * 2,
                                       hp.kernel_size, dilation=dilation,
-                                      padding=(padding_h, padding_w), bias=False)
+                                      padding=(self.padding_h, self.padding_w), bias=False)
 
         self.cdtconv      = nn.Conv2d(hp.cdt_size, hp.hidden_size * 2, 1, bias=False)
         
@@ -34,7 +34,7 @@ class ResidualBlock(nn.Module, Debugger):
     def forward(self, x, c):
         res = x.clone()
 
-        x = self.initial_conv(x)[:,:,:hp.h,:]
+        x = self.initial_conv(x)[:,:,:-self.padding_h,:]
         c = self.cdtconv(c)
 
         xa,xb = torch.split(x, hp.hidden_size, 1)
@@ -77,7 +77,7 @@ class ResidualStack(nn.Module, Debugger):
     
     def forward(self, x, c):
         self.debug_msg("first conv")
-        res = self.first_conv(x)[:,:,:hp.h,:]
+        res = self.first_conv(x)[:,:,:-3,:]
         
         skp_list = []
 
@@ -92,7 +92,7 @@ class ResidualStack(nn.Module, Debugger):
 
         self.debug_msg("last convs")
         return self.last_convs(x)
-    
+
     def apply_weight_norm(self):
         for i in [1,3]:
             self.last_convs[i] = nn.utils.weight_norm(self.last_convs[i])
@@ -159,25 +159,18 @@ class WaveFlow(nn.Module, Debugger):
 
         c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3).to(device)
         z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(device)
+
         z = z * temp
-        x = torch.zeros_like(z).to(device)
-
-        pad = torch.zeros(1,1,hp.h,1).to(device)
-
-        # C : B x D x H x W
-        c_shift = nn.functional.pad(c, (1,0), "constant", 0)[...,:c.shape[-1]]
-        c = torch.cat([c_shift, c], 2)
-
-        x = torch.cat([pad.expand_as(x),x], 2)
-
-        for step in tqdm(range(hp.h), desc="Generating waveform..."):
-            x_ = x[:,:,step:step+hp.h,:]
-            c_ = c[:,:,step:step+hp.h,:]
-
-            _, mean, logvar = self.forward(x_,c_, squeezed=True)
-
-            x[:,:,hp.h + step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
         
-        x = x[:,:,hp.h:,:].transpose(2,3).reshape(x.shape[0], -1)
+        for flow in tqdm(self.flows[::-1], desc="Iterating overs flows"):
+            for step in range(hp.h):
+                z_in = z[:,:,:step+1,:]
+                c_in = c[:,:,:step+1,:]
 
-        return x
+                mean, logvar = torch.split(flow(z_in,c_in), 1, 1)
+
+                z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
+            
+        z = z.transpose(2,3).reshape(z.shape[0], -1)
+
+        return z
