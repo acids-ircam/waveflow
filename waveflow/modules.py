@@ -171,18 +171,15 @@ class WaveFlow(nn.Module, Debugger):
     
         z = z * temp
         
-        z = torch.cat([nn.functional.pad(z,(1,0),"constant",0)[...,:-1], z],2)
-        c = torch.cat([nn.functional.pad(c,(1,0),"constant",0)[...,:-1], c],2)
-
         for flow in tqdm(self.flows[::-1], desc="Iterating overs flows"):
             for step in range(hp.h):
-                z_in = z[:,:,step:hp.h+step+1,:]
-                c_in = c[:,:,step:hp.h+step+1,:]
+                z_in = z[:,:,:step+1,:]
+                c_in = c[:,:,:step+1,:]
 
                 mean, logvar = torch.split(flow(z_in,c_in), 1, 1)
 
-                z[:,:,hp.h+step,:] = (z[:,:,hp.h+step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
+                z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
             
-        z = z[:,:,hp.h:,:].transpose(2,3).reshape(z.shape[0], -1)
+        z = z.transpose(2,3).reshape(z.shape[0], -1)
 
         return z
