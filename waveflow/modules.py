@@ -15,7 +15,7 @@ class ResidualBlock(nn.Module, Debugger):
         self.debug = debug
 
         total_size = (hp.kernel_size - 1) * dilation + 1
-        padding_h  = total_size - 1
+        padding_h  = total_size - 1 
         padding_w  = total_size // 2
 
         self.debug_msg([dilation, total_size, padding_h, padding_w])
@@ -57,7 +57,8 @@ class ResidualStack(nn.Module, Debugger):
     def __init__(self, debug=False):
         super().__init__()
 
-        self.first_conv = nn.Conv2d(hp.in_size, hp.res_size, 1)
+        self.first_conv = nn.Conv2d(hp.in_size, hp.res_size, (2,1),
+                                    padding=(2,0))
 
         self.stack = nn.ModuleList([
             ResidualBlock(2**i, debug) for i in np.arange(hp.n_layer) % hp.cycle_size
@@ -76,8 +77,8 @@ class ResidualStack(nn.Module, Debugger):
     
     def forward(self, x, c):
         self.debug_msg("first conv")
-        res = self.first_conv(x)
-
+        res = self.first_conv(x)[:,:,:hp.h,:]
+        
         skp_list = []
 
         self.debug_msg(f"iterating over {len(self.stack)} resblock...")
