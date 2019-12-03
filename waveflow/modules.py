@@ -29,6 +29,8 @@ class ResidualBlock(nn.Module, Debugger):
         self.resconv      = nn.Conv2d(hp.hidden_size, hp.res_size, 1)
         self.skipconv     = nn.Conv2d(hp.hidden_size, hp.skp_size, 1)
 
+        self.apply_weight_norm()
+
     def forward(self, x, c):
         res = x.clone()
 
@@ -44,6 +46,12 @@ class ResidualBlock(nn.Module, Debugger):
         skp = self.skipconv(x)
 
         return res, skp
+    
+    def apply_weight_norm(self):
+        self.initial_conv = nn.utils.weight_norm(self.initial_conv)
+        self.cdtconv     = nn.utils.weight_norm(self.cdtconv)
+        self.resconv      = nn.utils.weight_norm(self.resconv)
+        self.skipconv     = nn.utils.weight_norm(self.skipconv)
 
 class ResidualStack(nn.Module, Debugger):
     def __init__(self, debug=False):
@@ -63,6 +71,8 @@ class ResidualStack(nn.Module, Debugger):
         )
 
         self.debug = debug
+
+        self.apply_weight_norm()
     
     def forward(self, x, c):
         self.debug_msg("first conv")
@@ -81,7 +91,10 @@ class ResidualStack(nn.Module, Debugger):
 
         self.debug_msg("last convs")
         return self.last_convs(x)
-
+    
+    def apply_weight_norm(self):
+        for i in [1,3]:
+            self.last_convs[i] = nn.utils.weight_norm(self.last_convs[i])
 
 
 class WaveFlow(nn.Module, Debugger):
@@ -134,9 +147,11 @@ class WaveFlow(nn.Module, Debugger):
         return x, global_mean, global_logvar
 
     def loss(self, x, c):
-        z, _, logvar = self.forward(x,c)
-        loglikelihood = - torch.mean(z ** 2 + .5 * np.log(2*np.pi))  + torch.mean(logvar)
-        return - loglikelihood
+        z, mean, logvar = self.forward(x,c)
+
+        loss = torch.mean(z ** 2 - logvar)
+        
+        return z, mean, logvar, loss
 
     def synthesize(self, c):
         device = next(self.parameters()).device

@@ -24,12 +24,20 @@ def train_step(model, opt_list, step, data_list):
     x,S = data_list
     S = S.repeat_interleave(128,-1)
     
-    loss = model.loss(x,S)
+    z,mean,logvar,loss = model.loss(x,S)
     loss.backward()
     
 
     opt.step()
 
+    if step % trainer.image_every == 0:
+        with torch.no_grad():
+            y = model.synthesize(S).reshape(-1)
+        writer.add_audio("input", x.reshape(-1).cpu(), step, 16000)
+        writer.add_audio("reconstruction", y.cpu(), step, 16000)
+        writer.add_histogram("mean", mean.reshape(-1), step)
+        writer.add_histogram("logvar", logvar.reshape(-1), step)
+        writer.add_histogram("z", z.reshape(-1), step)
 
     return {"loss":loss.item()}
 
@@ -44,7 +52,7 @@ trainer.add_optimizer(torch.optim.Adam(trainer.model.parameters()))
 trainer.setup_optim()
 
 trainer.set_dataset_loader(SineGen)
-trainer.set_lr(np.linspace(1e-3, 1e-4, ct.args.step))
+trainer.set_lr(np.linspace(2e-4, 2e-4, ct.args.step))
 
 trainer.set_train_step(train_step)
 

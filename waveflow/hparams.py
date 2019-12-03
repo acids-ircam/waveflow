@@ -8,10 +8,10 @@ in_size     = 1
 out_size    = 2
 
 # FLOW HPARAMS
-h           = 16
+h           = 64
 n_flow      = 8
 n_layer     = 8
-cycle_size  = 1
+cycle_size  = 5
 
 class build:
     n_fft = 2048
