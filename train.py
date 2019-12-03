@@ -32,7 +32,7 @@ def train_step(model, opt_list, step, data_list):
 
     if step % trainer.image_every == 0:
         with torch.no_grad():
-            y = model.synthesize(S).reshape(-1)
+            y = model.synthesize(S, temp=.6).reshape(-1)
         writer.add_audio("input", x.reshape(-1).cpu(), step, 16000)
         writer.add_audio("reconstruction", y.cpu(), step, 16000)
         writer.add_histogram("mean", mean.reshape(-1), step)

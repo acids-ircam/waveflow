@@ -154,11 +154,12 @@ class WaveFlow(nn.Module, Debugger):
         
         return z, mean, logvar, loss
 
-    def synthesize(self, c):
+    def synthesize(self, c, temp=1.0):
         device = next(self.parameters()).device
 
         c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3).to(device)
         z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(device)
+        z = z * temp
         x = torch.zeros_like(z).to(device)
 
         pad = torch.zeros(1,1,hp.h,1).to(device)
