@@ -132,6 +132,8 @@ class WaveFlow(nn.Module, Debugger):
 
         self.debug_msg(f"Iterating over {len(self.flows)} flows")
         for i,flow in enumerate(self.flows):
+            x = torch.flip(x, 2)
+            c = torch.flip(c, 2)
             self.debug_msg(f"Passing through flow {i}")
             mean, logvar = torch.split(flow(x,c), 1, 1)
 
@@ -172,6 +174,9 @@ class WaveFlow(nn.Module, Debugger):
         z = z * temp
         
         for flow in tqdm(self.flows[::-1], desc="Iterating overs flows"):
+            z = torch.flip(z, 2)
+            c = torch.flip(c, 2)
+            
             for step in range(hp.h):
                 z_in = z[:,:,:step+1,:]
                 c_in = c[:,:,:step+1,:]
