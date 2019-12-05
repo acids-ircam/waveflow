@@ -4,6 +4,15 @@ from . import hparams as hp
 import numpy as np
 from tqdm import tqdm
 
+def full_flip(x):
+    return torch.flip(x, (2,))
+
+def half_flip(x):
+    x1,x2 = torch.split(x, x.shape[2]//2, 2)
+    x1 = torch.flip(x1,(2,))
+    x2 = torch.flip(x2,(2,))
+    return torch.cat([x1,x2], 2)
+
 class Debugger:
     def debug_msg(self, msg):
         if self.debug:
@@ -131,9 +140,7 @@ class WaveFlow(nn.Module, Debugger):
         global_logvar  = None
 
         self.debug_msg(f"Iterating over {len(self.flows)} flows")
-        for i,flow in enumerate(self.flows):
-            x = torch.flip(x, (2,))
-            c = torch.flip(c, (2,))
+        for i,flow in enumerate(self.flows):          
             self.debug_msg(f"Passing through flow {i}")
             mean, logvar = torch.split(flow(x,c), 1, 1)
 
@@ -149,6 +156,9 @@ class WaveFlow(nn.Module, Debugger):
                 global_logvar = logvar
 
             x = torch.exp(logvar) * x + mean
+
+            x = full_flip(x) if i < 4 else half_flip(x)
+            c = full_flip(c) if i < 4 else half_flip(c)
 
         return x, global_mean, global_logvar
 
@@ -174,8 +184,8 @@ class WaveFlow(nn.Module, Debugger):
         z = z * temp
         
         for flow in tqdm(self.flows[::-1], desc="Iterating overs flows"):
-            z = torch.flip(z, (2,))
-            c = torch.flip(c, (2,))
+            x = full_flip(x) if i < 4 else half_flip(x)
+            c = full_flip(c) if i < 4 else half_flip(c)
             
             for step in range(hp.h):
                 z_in = z[:,:,:step+1,:]
