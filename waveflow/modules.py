@@ -133,9 +133,6 @@ class WaveFlow(nn.Module, Debugger):
             x = x.reshape(x.shape[0], 1, x.shape[-1] // hp.h, -1).transpose(2,3)
             c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
 
-            #x = torch.cat([nn.functional.pad(x, (1,0), "constant", 0)[...,:-1],x], 2)
-            #c = torch.cat([nn.functional.pad(c, (1,0), "constant", 0)[...,:-1],c], 2)
-
         global_mean    = None
         global_logvar  = None
 
@@ -143,9 +140,6 @@ class WaveFlow(nn.Module, Debugger):
         for i,flow in enumerate(self.flows):          
             self.debug_msg(f"Passing through flow {i}")
             mean, logvar = torch.split(flow(x,c), 1, 1)
-
-            #mean = torch.tanh(mean)
-            #logvar = torch.clamp(logvar, -7)
             
             if global_mean is not None and global_logvar is not None:
                 global_mean    = global_mean * torch.exp(logvar) + mean
@@ -164,28 +158,29 @@ class WaveFlow(nn.Module, Debugger):
 
     def loss(self, x, c):
         z, mean, logvar = self.forward(x,c)
-        #z = z[:,:,hp.h:,:]
-        #mean = mean[:,:,hp.h:,:]
-        #logvar = logvar[:,:,hp.h:,:]
-
-
+      
         self.debug_msg(f"z.shape={z.shape}\nmean.shape={mean.shape}\nlogvar.shape={logvar.shape}")
 
         loss = torch.mean(z ** 2 - logvar)
         
         return z, mean, logvar, loss
 
-    def synthesize(self, c, temp=1.0):
+    def synthesize(self, c, temp=1.0, demo_pass=False):
         device = next(self.parameters()).device
+        print(f"Synthesizing on device {device}")
 
         c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3).to(device)
         z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(device)
     
         z = z * temp
-        
-        for flow in tqdm(self.flows[::-1], desc="Iterating overs flows"):
-            x = full_flip(x) if i < 4 else half_flip(x)
-            c = full_flip(c) if i < 4 else half_flip(c)
+
+        if demo_pass:
+            zs = []
+            zs.append(z.transpose(2,3).reshape(-1).cpu().numpy())
+
+        for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
+            z = full_flip(z) if i > 4 else half_flip(z)
+            c = full_flip(c) if i > 4 else half_flip(c)
             
             for step in range(hp.h):
                 z_in = z[:,:,:step+1,:]
@@ -195,6 +190,15 @@ class WaveFlow(nn.Module, Debugger):
 
                 z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
             
+            if demo_pass:
+                demo = full_flip(z) if i > 4 else half_flip(z)
+                zs.append(demo.transpose(2,3).reshape(-1).cpu().numpy())
+
+      
+            
         z = z.transpose(2,3).reshape(z.shape[0], -1)
 
-        return z
+        if demo_pass:
+            return z,np.asarray(zs)
+        else:
+            return z
