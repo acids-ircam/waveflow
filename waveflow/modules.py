@@ -191,8 +191,8 @@ class WaveFlow(nn.Module, Debugger):
                 z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
             
             if demo_pass:
-                demo = full_flip(z) if i > 4 else half_flip(z)
-                zs.append(demo.transpose(2,3).reshape(-1).cpu().numpy())
+                # demo = full_flip(z) if i > 4 else half_flip(z)
+                zs.append(z.transpose(2,3).reshape(-1).cpu().numpy())
 
       
             

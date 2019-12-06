@@ -19,7 +19,7 @@ S = torch.stack([d[1] for d in data],0)
 S = S.repeat_interleave(128, -1)
 
 flow = WaveFlow(debug=False)
-flow.load_state_dict(torch.load("step_60000.pth", map_location="cpu")[1])
+flow.load_state_dict(torch.load("step_250000.pth", map_location="cpu")[1])
 flow = flow.cuda()
 print("State loaded !")
 
@@ -34,13 +34,14 @@ plt.show()
 
 plt.ion()
 
-fps = 20
-N   = 100
+fps = 60
+N   = 300
 
-y = y_trained.reshape(-1)[:N]
+y = x.reshape(-1).cpu().numpy()[:N]
 
 x = zs[0,:N]
 
+plt.figure(figsize=(10,5))
 plt.subplot(121)
 plt.plot(x)
 plt.title(f"source")
@@ -49,7 +50,7 @@ plt.plot(y)
 plt.title("target")
 plt.pause(2)
 
-# os.makedirs("temp/", exist_ok=True)
+os.makedirs("temp/", exist_ok=True)
 
 for f in range(hp.n_flow):
     for i in range(fps):
@@ -63,7 +64,7 @@ for f in range(hp.n_flow):
         plt.plot(y)
         plt.ylim([-3,3])
         plt.title("target")
-        # plt.savefig("temp/img_{:05d}.png".format(i+f*fps))
+        plt.savefig("temp/img_{:05d}.png".format(i+f*fps))
         plt.pause(1/60)
 
 plt.pause(5)
