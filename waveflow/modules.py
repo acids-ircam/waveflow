@@ -102,6 +102,17 @@ class ResidualStack(nn.Module, Debugger):
 
         self.debug_msg("last convs")
         return self.last_convs(x)
+    
+    def arTransform(self, z):
+        """
+        TO BE DONE: FAST auto regressive transformation of z
+        """
+        for step in range(hp.h):
+            z_in = z[:,:,:step+1,:]
+            c_in = c[:,:,:step+1,:]
+            mean, logvar = torch.split(self.forward(z_in,c_in), 1, 1)
+            z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
+        return z
 
     def apply_weight_norm(self):
         for i in [1,3]:
@@ -217,19 +228,20 @@ class WaveFlow(nn.Module, Debugger):
         for f in self.flows:
             pass
 
-        # for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
-        #     z = full_flip(z) if i > 4 else half_flip(z)
-        #     c = full_flip(c) if i > 4 else half_flip(c)
+        for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
+            z = full_flip(z) if i > 4 else half_flip(z)
+            c = full_flip(c) if i > 4 else half_flip(c)
             
-        #     for step in range(hp.h):
-        #         z_in = z[:,:,:step+1,:]
-        #         c_in = c[:,:,:step+1,:]
+            z = flow.arTransform(z_in,cin)
+            # for step in range(hp.h):
+            #     z_in = z[:,:,:step+1,:]
+            #     c_in = c[:,:,:step+1,:]
 
-        #         mean, logvar = torch.split(flow(z_in,c_in), 1, 1)
+            #     mean, logvar = torch.split(flow(z_in,c_in), 1, 1)
 
-        #         z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
+            #     z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
                   
             
-        # z = z.transpose(2,3).reshape(z.shape[0], -1)
+        z = z.transpose(2,3).reshape(z.shape[0], -1)
 
-        # return z
+        return z
