@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from . import hparams as hp
-from .fast_utils import CircularTensor
+from .fast_utils import CircularTensor, getFastConv
 import numpy as np
 from tqdm import tqdm
 
@@ -23,6 +23,7 @@ class ResidualBlock(nn.Module, Debugger):
     def __init__(self, dilation, debug=False):
         super().__init__()
         self.debug = debug
+        self.dilation = dilation
 
         total_size = (hp.kernel_size - 1) * dilation + 1
         self.padding_h  = total_size - 1 
@@ -39,12 +40,19 @@ class ResidualBlock(nn.Module, Debugger):
         self.resconv      = nn.Conv2d(hp.hidden_size, hp.res_size, 1, bias=False)
         self.skipconv     = nn.Conv2d(hp.hidden_size, hp.skp_size, 1, bias=False)
 
+
         self.apply_weight_norm()
 
-    def forward(self, x, c):
-        res = x.clone()
 
-        x = self.initial_conv(x)[:,:,:-self.padding_h,:]
+    def forward(self, x, c, no_pad=False):
+        res = x.clone()
+        if no_pad:
+            if self.initial_conv.padding[0] != 0:
+                self.initial_conv.padding = 0,self.initial_conv.padding[1]
+            x = self.initial_conv(x)
+        else:
+            x = self.initial_conv(x)[:,:,:-self.padding_h,:]
+
         c = self.cdtconv(c)
 
         xa,xb = torch.split(x, hp.hidden_size, 1)
@@ -52,7 +60,11 @@ class ResidualBlock(nn.Module, Debugger):
 
         x = torch.tanh(xa + ca) * torch.sigmoid(xb + cb)
 
-        res = self.resconv(x) + res
+
+        if no_pad:
+            res = self.resconv(x) + res[:,:,-1:,:]
+        else:
+            res = self.resconv(x) + res
         skp = self.skipconv(x)
 
         return res, skp
@@ -62,6 +74,7 @@ class ResidualBlock(nn.Module, Debugger):
         self.cdtconv     = nn.utils.weight_norm(self.cdtconv)
         self.resconv      = nn.utils.weight_norm(self.resconv)
         self.skipconv     = nn.utils.weight_norm(self.skipconv)
+
 
 class ResidualStack(nn.Module, Debugger):
     def __init__(self, debug=False):
@@ -86,33 +99,66 @@ class ResidualStack(nn.Module, Debugger):
         self.apply_weight_norm()
     
     def forward(self, x, c):
-        self.debug_msg("first conv")
-        res = self.first_conv(x)[:,:,:-3,:]
+        res = torch.tanh(self.first_conv(x)[:,:,:-3,:])
         
         skp_list = []
 
-        self.debug_msg(f"iterating over {len(self.stack)} resblock...")
         for i,resblock in enumerate(self.stack):
             self.debug_msg(f"Residual block {i}")
             res, skp = resblock(res, c)
             skp_list.append(skp)
         
-        self.debug_msg("sum")
         x = sum(skp_list)
 
-        self.debug_msg("last convs")
         return self.last_convs(x)
     
-    def arTransform(self, z):
+    def arTransform(self, z, c):
         """
         TO BE DONE: FAST auto regressive transformation of z
         """
-        for step in range(hp.h):
-            z_in = z[:,:,:step+1,:]
-            c_in = c[:,:,:step+1,:]
-            mean, logvar = torch.split(self.forward(z_in,c_in), 1, 1)
+
+        cache = []
+        device = next(self.parameters()).device
+
+        for block in self.stack:
+            cache.append(torch.zeros(z.shape[0],
+                                     hp.res_size,
+                                     (hp.kernel_size-1)*block.dilation + 1,
+                                     z.shape[-1]).to(device))
+        
+        first_conv = nn.Conv2d(hp.in_size, hp.res_size, (2,1),
+                                    padding=(0,0), bias=False).to(device)
+        first_conv.weight = self.first_conv.weight
+
+        z = nn.functional.pad(z, (0,0,2,0), "constant")
+
+        for step in range(2,hp.h+2):
+            z_in = z[:,:,step-2:step,:]
+            c_in = c[:,:,step-2:step-1,:]
+            
+            res = first_conv(z_in)
+            res = torch.tanh(res)
+        
+            skp_list = []
+
+            for i,resblock in enumerate(self.stack):
+                old_res = res.clone()
+                res, skp = resblock(cache[i], c_in, no_pad=True)
+                skp_list.append(skp)
+                
+                cache[i][:,:,:-1,:] = cache[i][:,:,1:,:]
+                cache[i][:,:,-1:,:] = old_res
+        
+            x = sum(skp_list)
+            x = self.last_convs(x)
+
+            mean, logvar = torch.split(x, 1, 1)
+            
+
+
             z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
-        return z
+
+        return z[:,:,2:,:]
 
     def apply_weight_norm(self):
         for i in [1,3]:
@@ -225,23 +271,13 @@ class WaveFlow(nn.Module, Debugger):
     
         z = z * temp
 
-        for f in self.flows:
-            pass
-
         for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
             z = full_flip(z) if i > 4 else half_flip(z)
             c = full_flip(c) if i > 4 else half_flip(c)
             
-            z = flow.arTransform(z_in,cin)
-            # for step in range(hp.h):
-            #     z_in = z[:,:,:step+1,:]
-            #     c_in = c[:,:,:step+1,:]
-
-            #     mean, logvar = torch.split(flow(z_in,c_in), 1, 1)
-
-            #     z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
-                  
-            
+            z = flow.arTransform(z,c)
+            # print(i,z.shape)
+                   
         z = z.transpose(2,3).reshape(z.shape[0], -1)
 
         return z
