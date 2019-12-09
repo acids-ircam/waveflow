@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from . import hparams as hp
+from .fast_utils import CircularTensor
 import numpy as np
 from tqdm import tqdm
 
@@ -202,3 +203,33 @@ class WaveFlow(nn.Module, Debugger):
             return z,np.asarray(zs)
         else:
             return z
+
+    def synthesize_fast(self, c, temp=1.0):
+
+        device = next(self.parameters()).device
+        print(f"Synthesizing on device {device}")
+
+        c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3).to(device)
+        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(device)
+    
+        z = z * temp
+
+        for f in self.flows:
+            pass
+
+        # for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
+        #     z = full_flip(z) if i > 4 else half_flip(z)
+        #     c = full_flip(c) if i > 4 else half_flip(c)
+            
+        #     for step in range(hp.h):
+        #         z_in = z[:,:,:step+1,:]
+        #         c_in = c[:,:,:step+1,:]
+
+        #         mean, logvar = torch.split(flow(z_in,c_in), 1, 1)
+
+        #         z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
+                  
+            
+        # z = z.transpose(2,3).reshape(z.shape[0], -1)
+
+        # return z
