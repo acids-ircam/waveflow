@@ -133,7 +133,7 @@ class ResidualStack(nn.Module, Debugger):
 
         z = nn.functional.pad(z, (0,0,2,0), "constant")
 
-        for step in range(2,hp.h+2):
+        for step in tqdm(range(2,hp.h+2)):
             z_in = z[:,:,step-2:step,:]
             c_in = c[:,:,step-2:step-1,:]
             
@@ -143,12 +143,12 @@ class ResidualStack(nn.Module, Debugger):
             skp_list = []
 
             for i,resblock in enumerate(self.stack):
-                old_res = res.clone()
+                cache[i][:,:,:-1,:] = cache[i][:,:,1:,:]
+                cache[i][:,:,-1:,:] = res
+
                 res, skp = resblock(cache[i], c_in, no_pad=True)
                 skp_list.append(skp)
                 
-                cache[i][:,:,:-1,:] = cache[i][:,:,1:,:]
-                cache[i][:,:,-1:,:] = old_res
         
             x = sum(skp_list)
             x = self.last_convs(x)
@@ -272,7 +272,7 @@ class WaveFlow(nn.Module, Debugger):
     
         z = z * temp
 
-        for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
+        for i,flow in enumerate(self.flows[::-1]):
             z = full_flip(z) if i > 4 else half_flip(z)
             c = full_flip(c) if i > 4 else half_flip(c)
             
