@@ -88,6 +88,7 @@ class ResidualStack(nn.Module, Debugger):
         self.debug_msg("first conv")
         res = self.first_conv(x)[:,:,:-3,:]
         
+        res = torch.tanh(res)
         skp_list = []
 
         self.debug_msg(f"iterating over {len(self.stack)} resblock...")

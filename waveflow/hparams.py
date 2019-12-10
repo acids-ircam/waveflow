@@ -1,5 +1,5 @@
 # RESIDUAL BLOCK HPARAMS
-hidden_size = 64
+hidden_size = 128
 skp_size    = 64
 res_size    = 64
 kernel_size = 3
