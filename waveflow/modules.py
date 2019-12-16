@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from . import hparams as hp
-from .fast_utils import CircularTensor, getFastConv
+from .fast_utils import CircularTensor
 import numpy as np
 from tqdm import tqdm
 
@@ -42,9 +42,6 @@ class ResidualBlock(nn.Module):
         if incremental:
             if self.initial_conv.padding[0] != 0:
                 self.initial_conv.padding = 0,self.initial_conv.padding[1]
-
-            if self.initial_conv.dilation[0] != 1:
-                self.initial_conv.dilation = 1,self.initial_conv.dilation[1]
 
             x = self.initial_conv(x)
         else:
@@ -98,15 +95,16 @@ class ResidualStack(nn.Module):
             nn.Conv2d(hp.skp_size, hp.out_size, 1, bias=False)
         )
 
+        self.cache = None
+
+
         self.apply_weight_norm()
     
     def forward(self, x, c):
         res = torch.tanh(self.first_conv(x)[:,:,:-3,:])
-        
-        res = torch.tanh(res)
         skp_list = []
 
-        for i,resblock in enumerate(self.stack):
+        for resblock in self.stack:
             res, skp = resblock(res, c)
             skp_list.append(skp)
         
@@ -118,7 +116,52 @@ class ResidualStack(nn.Module):
         """
         TO BE DONE: FAST auto regressive transformation of z
         """
-        pass
+        device = next(self.parameters()).device
+
+        if self.cache is None:
+            # FIRST SYNTHESIS
+            self.first_conv.padding = (0,0)
+            self.cache = []
+            for block in self.stack:
+                self.cache.append(torch.zeros(z.shape[0],
+                                              hp.res_size,
+                                              (hp.kernel_size-1)*block.dilation + 1,
+                                              z.shape[-1]).type(z.dtype).to(device))
+            for i in range(len(self.cache)):
+                self.cache[i] = CircularTensor(self.cache[i], 2)
+        else:
+            # RESUMED SYNTHESIS, RESET CACHE
+            for i in range(len(self.cache)):
+                self.cache[i].tensor.zero_()
+
+        z = nn.functional.pad(z, (0,0,2,0))
+
+        for step in range(hp.h):
+            # GETTING INPUTS ################################
+            z_in = z[:,:,step:step+2,:]
+            c_in = c[:,:,step:step+1,:]
+            #################################################
+
+            # COMPUTING PARAMETRIZATION #####################
+            res = torch.tanh(self.first_conv(z_in))
+            skp_list = []
+
+            for i,resblock in enumerate(self.stack):
+                self.cache[i].set_current(res[:,:,-1,:])
+                res = self.cache[i]()
+                res, skp = resblock(res, c_in, incremental=True)
+                skp_list.append(skp)
+
+            x = sum(skp_list)
+
+            mean, logvar = torch.split(self.last_convs(x),1,1)
+            #################################################
+
+            # UPDATING OUTPUT ###############################
+            z[:,:,step+2,:] = (z[:,:,step+2,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
+            #################################################
+
+        return z[...,2:,:]
 
     def apply_weight_norm(self):
         for i in [1,3]:
@@ -160,6 +203,8 @@ class WaveFlow(nn.Module):
 
         for i,flow in enumerate(self.flows):          
             mean, logvar = torch.split(flow(x,c), 1, 1)
+
+            logvar = torch.clamp(logvar, max=10)
             
             if global_mean is not None and global_logvar is not None:
                 global_mean    = global_mean * torch.exp(logvar) + mean
@@ -183,21 +228,12 @@ class WaveFlow(nn.Module):
         
         return z, mean, logvar, loss
 
-    def synthesize(self, c, temp=1.0, demo_pass=False):
-        device = next(self.parameters()).device
-        print(f"Synthesizing on device {device}")
+    def synthesize(self, c, temp=1.0):
 
-        c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3).to(device)
-        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(device)
+        c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
+        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(c.device)
     
-        z = z * temp
-
-        # USEFUL WHEN USING APEX
-        z = z.type(c.dtype)
-
-        if demo_pass:
-            zs = []
-            zs.append(z.transpose(2,3).reshape(-1).cpu().numpy())
+        z = (z * temp).type(c.dtype)
 
         for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
             z = full_flip(z) if i > 4 else half_flip(z)
@@ -210,37 +246,25 @@ class WaveFlow(nn.Module):
                 mean, logvar = torch.split(flow(z_in,c_in), 1, 1)
 
                 z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
-            
-            if demo_pass:
-                # demo = full_flip(z) if i > 4 else half_flip(z)
-                zs.append(z.transpose(2,3).reshape(-1).cpu().numpy())
-
       
             
         z = z.transpose(2,3).reshape(z.shape[0], -1)
 
-        if demo_pass:
-            return z,np.asarray(zs)
-        else:
-            return z
+        return z
+
 
     def synthesize_fast(self, c, temp=1.0):
+        c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
+        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(c.device)
+        z = (z * temp).type(c.dtype)
 
-        device = next(self.parameters()).device
-        print(f"Synthesizing on device {device}")
 
-        c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3).to(device)
-        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(device)
-    
-        z = z * temp
-
-        for i,flow in enumerate(self.flows[::-1]):
+        for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
             z = full_flip(z) if i > 4 else half_flip(z)
             c = full_flip(c) if i > 4 else half_flip(c)
-            
+
             z = flow.arTransform(z,c)
-            # print(i,z.shape)
-                   
+            
         z = z.transpose(2,3).reshape(z.shape[0], -1)
 
         return z
