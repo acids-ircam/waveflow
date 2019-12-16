@@ -5,7 +5,7 @@ class CircularTensor(object):
         self.tensor  = tensor
         self.dim     = dim
         self.roll    = 0
-        self.index   = torch.arange(self.tensor.shape[dim])
+        self.index   = torch.arange(self.tensor.shape[dim]).to(tensor.device)
     
     def __getattr__(self, name):
         if name == "shape":
