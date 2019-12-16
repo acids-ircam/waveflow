@@ -44,11 +44,15 @@ class ResidualBlock(nn.Module, Debugger):
         self.apply_weight_norm()
 
 
-    def forward(self, x, c, no_pad=False):
+    def forward(self, x, c, incremental=False):
         res = x.clone()
-        if no_pad:
+        if incremental:
             if self.initial_conv.padding[0] != 0:
                 self.initial_conv.padding = 0,self.initial_conv.padding[1]
+
+            if self.initial_conv.dilation[0] != 1:
+                self.initial_conv.dilation = 1,self.initial_conv.dilation[1]
+
             x = self.initial_conv(x)
         else:
             x = self.initial_conv(x)[:,:,:-self.padding_h,:]
@@ -61,10 +65,11 @@ class ResidualBlock(nn.Module, Debugger):
         x = torch.tanh(xa + ca) * torch.sigmoid(xb + cb)
 
 
-        if no_pad:
+        if incremental:
             res = self.resconv(x) + res[:,:,-1:,:]
         else:
             res = self.resconv(x) + res
+
         skp = self.skipconv(x)
 
         return res, skp
@@ -74,6 +79,12 @@ class ResidualBlock(nn.Module, Debugger):
         self.cdtconv     = nn.utils.weight_norm(self.cdtconv)
         self.resconv      = nn.utils.weight_norm(self.resconv)
         self.skipconv     = nn.utils.weight_norm(self.skipconv)
+
+    def remove_weight_norm(self):
+        nn.utils.remove_weight_norm_(self.initial_conv)
+        nn.utils.remove_weight_norm_(self.cdtconv)
+        nn.utils.remove_weight_norm_(self.resconv)
+        nn.utils.remove_weight_norm_(self.skipconv)
 
 
 class ResidualStack(nn.Module, Debugger):
@@ -165,6 +176,12 @@ class ResidualStack(nn.Module, Debugger):
         for i in [1,3]:
             self.last_convs[i] = nn.utils.weight_norm(self.last_convs[i])
 
+    def remove_weight_norm(self):
+        for i in [1,3]:
+            nn.utils.remove_weight_norm_(self.last_convs[i])
+        for s in self.stack:
+            s.remove_weight_norm()
+
 
 class WaveFlow(nn.Module, Debugger):
     def __init__(self, debug=False):
@@ -233,6 +250,9 @@ class WaveFlow(nn.Module, Debugger):
     
         z = z * temp
 
+        # USEFUL WHEN USING APEX
+        z = z.type(c.dtype)
+
         if demo_pass:
             zs = []
             zs.append(z.transpose(2,3).reshape(-1).cpu().numpy())
@@ -282,3 +302,7 @@ class WaveFlow(nn.Module, Debugger):
         z = z.transpose(2,3).reshape(z.shape[0], -1)
 
         return z
+
+    def remove_weight_norm(self):
+        for f in self.flows:
+            f.remove_weight_norm()

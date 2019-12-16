@@ -1,45 +1,33 @@
-class CircularTensor:
-    """
-    Define a Tensor mapped on a cylinder in order to speed up roll time during
-    fast generation loop.
-    """
-    def __init__(self, tensor, dim):
-        self.dim = dim
-        self.roll = 0
-        self.tensor = tensor
-        self.mod = self.tensor.shape[self.dim]
+import torch
 
-    def __getitem__(self,index):
-        index = list(index)
-        index[self.dim] = (index[self.dim] + self.roll) % self.mod
-        return self.tensor[tuple(index)]
 
-    def __setitem__(self, index, value):
-        index = list(index)
-        index[self.dim] = (index[self.dim] + self.roll) % self.mod
-        self.tensor[tuple(index)] = value
+class CircularTensor(object):
+    def __init__(self, tensor, dim, n_slice):
+        self.tensor  = tensor
+        self.dim     = dim
+        self.n_slice = n_slice
+        self.roll    = 0
+        self.index   = torch.arange(self.n_slice)
+    
+    def __getattr__(self, name):
+        if name == "shape":
+            return self.tensor.shape
+    
+    def next_slice(self):
+        idx       = (self.index + self.roll) % self.shape[self.dim]
+        self.roll = (self.roll+1) % self.shape[self.dim]
+        return self.tensor.index_select(self.dim, idx)
 
-    def rollBy(self, amount):
-        self.roll -= amount
-        self.roll  = self.roll % self.mod
+    def set_current(self, x):
+        dim = [slice(None,None,None) for i in range(len(self.shape))]
+        dim[self.dim] = (self.roll - 1 + self.n_slice) % self.shape[self.dim]
+        self.tensor[dim] = x
 
-    def __str__(self):
-        return str(self.tensor)
 
-def getFastConv(conv):
-    kernel = conv.kernel_size
-    
-    dilation = (1, conv.dilation[1])
-    padding = (0, conv.padding[1])
-    
-    stride = conv.stride
-    weight = conv.weight
-    bias = conv.bias
-    
-    inchan, outchan = weight.shape[1], weight.shape[0]
-    
-    newconv = nn.Conv2d(inchan, outchan, kernel, dilation=dilation, stride=stride, padding=padding)
-    newconv.weight = weight
-    newconv.bias = bias
-    
-    return newconv
+if __name__ == "__main__":
+    import torch
+    x = torch.arange(9).reshape(3,3)
+    c = CircularTensor(x,0,2)
+    for i in range(10):
+        print(c.next_slice())
+        c.set_current(x[0,:])
