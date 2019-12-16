@@ -1,6 +1,5 @@
 import torch
 
-
 class CircularTensor(object):
     def __init__(self, tensor, dim, n_slice):
         self.tensor  = tensor
@@ -14,13 +13,13 @@ class CircularTensor(object):
             return self.tensor.shape
     
     def next_slice(self):
-        idx       = (self.index + self.roll) % self.shape[self.dim]
         self.roll = (self.roll+1) % self.shape[self.dim]
+        idx       = (self.index + self.roll) % self.shape[self.dim]
         return self.tensor.index_select(self.dim, idx)
 
     def set_current(self, x):
         dim = [slice(None,None,None) for i in range(len(self.shape))]
-        dim[self.dim] = (self.roll - 1 + self.n_slice) % self.shape[self.dim]
+        dim[self.dim] = (self.roll + self.n_slice) % self.shape[self.dim]
         self.tensor[dim] = x
 
 

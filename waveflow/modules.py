@@ -14,22 +14,15 @@ def half_flip(x):
     x2 = torch.flip(x2,(2,))
     return torch.cat([x1,x2], 2)
 
-class Debugger:
-    def debug_msg(self, msg):
-        if self.debug:
-            print(msg)
-
-class ResidualBlock(nn.Module, Debugger):
-    def __init__(self, dilation, debug=False):
+class ResidualBlock(nn.Module):
+    def __init__(self, dilation):
         super().__init__()
-        self.debug = debug
         self.dilation = dilation
 
         total_size = (hp.kernel_size - 1) * dilation + 1
         self.padding_h  = total_size - 1 
         self.padding_w  = total_size // 2
 
-        self.debug_msg([dilation, total_size, self.padding_h, self.padding_w])
 
         self.initial_conv = nn.Conv2d(hp.res_size, hp.hidden_size * 2,
                                       hp.kernel_size, dilation=dilation,
@@ -81,21 +74,21 @@ class ResidualBlock(nn.Module, Debugger):
         self.skipconv     = nn.utils.weight_norm(self.skipconv)
 
     def remove_weight_norm(self):
-        nn.utils.remove_weight_norm_(self.initial_conv)
-        nn.utils.remove_weight_norm_(self.cdtconv)
-        nn.utils.remove_weight_norm_(self.resconv)
-        nn.utils.remove_weight_norm_(self.skipconv)
+        nn.utils.remove_weight_norm(self.initial_conv)
+        nn.utils.remove_weight_norm(self.cdtconv)
+        nn.utils.remove_weight_norm(self.resconv)
+        nn.utils.remove_weight_norm(self.skipconv)
 
 
-class ResidualStack(nn.Module, Debugger):
-    def __init__(self, debug=False):
+class ResidualStack(nn.Module):
+    def __init__(self):
         super().__init__()
 
         self.first_conv = nn.Conv2d(hp.in_size, hp.res_size, (2,1),
                                     padding=(2,0), bias=False)
 
         self.stack = nn.ModuleList([
-            ResidualBlock(2**i, debug) for i in np.arange(hp.n_layer) % hp.cycle_size
+            ResidualBlock(2**i) for i in np.arange(hp.n_layer) % hp.cycle_size
         ])
 
         self.last_convs = nn.Sequential(
@@ -104,8 +97,6 @@ class ResidualStack(nn.Module, Debugger):
             nn.ReLU(),
             nn.Conv2d(hp.skp_size, hp.out_size, 1, bias=False)
         )
-
-        self.debug = debug
 
         self.apply_weight_norm()
     
@@ -116,7 +107,6 @@ class ResidualStack(nn.Module, Debugger):
         skp_list = []
 
         for i,resblock in enumerate(self.stack):
-            self.debug_msg(f"Residual block {i}")
             res, skp = resblock(res, c)
             skp_list.append(skp)
         
@@ -128,49 +118,7 @@ class ResidualStack(nn.Module, Debugger):
         """
         TO BE DONE: FAST auto regressive transformation of z
         """
-
-        cache = []
-        device = next(self.parameters()).device
-
-        for block in self.stack:
-            cache.append(torch.zeros(z.shape[0],
-                                     hp.res_size,
-                                     (hp.kernel_size-1)*block.dilation + 1,
-                                     z.shape[-1]).to(device))
-        
-        first_conv = nn.Conv2d(hp.in_size, hp.res_size, (2,1),
-                                    padding=(0,0), bias=False).to(device)
-        first_conv.weight = self.first_conv.weight
-
-        z = nn.functional.pad(z, (0,0,2,0), "constant")
-
-        for step in tqdm(range(2,hp.h+2)):
-            z_in = z[:,:,step-2:step,:]
-            c_in = c[:,:,step-2:step-1,:]
-            
-            res = first_conv(z_in)
-            res = torch.tanh(res)
-        
-            skp_list = []
-
-            for i,resblock in enumerate(self.stack):
-                cache[i][:,:,:-1,:] = cache[i][:,:,1:,:]
-                cache[i][:,:,-1:,:] = res
-
-                res, skp = resblock(cache[i], c_in, no_pad=True)
-                skp_list.append(skp)
-                
-        
-            x = sum(skp_list)
-            x = self.last_convs(x)
-
-            mean, logvar = torch.split(x, 1, 1)
-            
-
-
-            z[:,:,step,:] = (z[:,:,step,:] - mean[:,:,-1,:]) * torch.exp(-logvar[:,:,-1,:])
-
-        return z[:,:,2:,:]
+        pass
 
     def apply_weight_norm(self):
         for i in [1,3]:
@@ -178,19 +126,18 @@ class ResidualStack(nn.Module, Debugger):
 
     def remove_weight_norm(self):
         for i in [1,3]:
-            nn.utils.remove_weight_norm_(self.last_convs[i])
+            nn.utils.remove_weight_norm(self.last_convs[i])
         for s in self.stack:
             s.remove_weight_norm()
 
 
-class WaveFlow(nn.Module, Debugger):
-    def __init__(self, debug=False):
+class WaveFlow(nn.Module):
+    def __init__(self):
         super().__init__()
         self.flows = nn.ModuleList([
-            ResidualStack(debug) for i in range(hp.n_flow)
+            ResidualStack() for i in range(hp.n_flow)
         ])
 
-        self.debug = debug
         self.receptive_field = (hp.kernel_size-1)*(sum([2**(i%hp.cycle_size) for i in range(hp.n_layer)])) + 1
 
         skipped = 0
@@ -205,16 +152,13 @@ class WaveFlow(nn.Module, Debugger):
 
     def forward(self, x, c, squeezed=False):
         if not squeezed:
-            self.debug_msg(f"Squeezing input")
             x = x.reshape(x.shape[0], 1, x.shape[-1] // hp.h, -1).transpose(2,3)
             c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
 
         global_mean    = None
         global_logvar  = None
 
-        self.debug_msg(f"Iterating over {len(self.flows)} flows")
         for i,flow in enumerate(self.flows):          
-            self.debug_msg(f"Passing through flow {i}")
             mean, logvar = torch.split(flow(x,c), 1, 1)
             
             if global_mean is not None and global_logvar is not None:
@@ -235,8 +179,6 @@ class WaveFlow(nn.Module, Debugger):
     def loss(self, x, c):
         z, mean, logvar = self.forward(x,c)
       
-        self.debug_msg(f"z.shape={z.shape}\nmean.shape={mean.shape}\nlogvar.shape={logvar.shape}")
-
         loss = torch.mean(z ** 2 - logvar)
         
         return z, mean, logvar, loss
