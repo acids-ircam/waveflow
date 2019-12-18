@@ -1,20 +1,36 @@
 import torch
 import torch.nn as nn
-from . import hparams as hp
-from .fast_utils import CircularTensor
 import numpy as np
 from tqdm import tqdm
 
+from . import hparams as hp
+from .fast_utils import CircularTensor
+
 def full_flip(x):
+    """
+    Perform a tensor flip on the height dimension (BxCxHxW)
+    """
     return torch.flip(x, (2,))
 
 def half_flip(x):
+    """
+    Split a tensor alongside the height dimension, and flip them
+    """
     x1,x2 = torch.split(x, x.shape[2]//2, 2)
     x1 = torch.flip(x1,(2,))
     x2 = torch.flip(x2,(2,))
     return torch.cat([x1,x2], 2)
 
 class ResidualBlock(nn.Module):
+    """
+    Wavenet inspired 2D residual block, with a causal constraint built-in the initial convolution layer.
+
+    Parameters
+    ----------
+
+    dilation: int
+        Dilation factor used in the initial conv
+    """
     def __init__(self, dilation):
         super().__init__()
         self.dilation = dilation
@@ -38,7 +54,28 @@ class ResidualBlock(nn.Module):
 
 
     def forward(self, x, c, incremental=False):
+        """
+        Forward pass
+
+        Parameters
+        ----------
+
+        x: Tensor
+            Input signal to process (BxCxHxW)
+        c: Tensor
+            Conditioning signal (BxCxHxW)
+
+        Returns
+        -------
+
+        res: Tensor
+            Residual connexion
+
+        skip: Tensor
+            Skip connexion
+        """
         res = x.clone()
+
         if incremental:
             if self.initial_conv.padding[0] != 0:
                 self.initial_conv.padding = 0,self.initial_conv.padding[1]
@@ -78,6 +115,9 @@ class ResidualBlock(nn.Module):
 
 
 class ResidualStack(nn.Module):
+    """
+    Stack of residual blocks, alongside pre and post conv, inspired by Wavenet.
+    """
     def __init__(self):
         super().__init__()
 
@@ -101,6 +141,24 @@ class ResidualStack(nn.Module):
         self.apply_weight_norm()
     
     def forward(self, x, c):
+        """
+        Forward pass
+
+        Parameters
+        ----------
+
+        x: Tensor
+            Input signal to process (BxCxHxW)
+        c: Tensor
+            Conditioning signal (BxCxHxW)
+
+        Returns
+        -------
+
+        Tensor
+            Output of the residual stack
+        """
+
         res = torch.tanh(self.first_conv(x)[:,:,:-3,:])
         skp_list = []
 
@@ -114,7 +172,23 @@ class ResidualStack(nn.Module):
     
     def arTransform(self, z, c):
         """
-        TO BE DONE: FAST auto regressive transformation of z
+        Auto-regressive forward pass, caching intermediate states to optimize both memory usage and
+        generation speed
+
+        Parameters
+        ----------
+
+        z: Tensor
+            Input signal to transform
+
+        c: Tensor
+            Conditioning signal
+        
+        Returns
+        -------
+
+        Tensor
+            Transformed signal
         """
         device = next(self.parameters()).device
 
@@ -175,7 +249,10 @@ class ResidualStack(nn.Module):
 
 
 class WaveFlow(nn.Module):
-    def __init__(self):
+    """
+    Implementation of the WaveFlow model. Each parameter is defined inside waveflow/hparams.py
+    """
+    def __init__(self, verbose=False):
         super().__init__()
         self.flows = nn.ModuleList([
             ResidualStack() for i in range(hp.n_flow)
@@ -190,10 +267,39 @@ class WaveFlow(nn.Module):
             except:
                 skipped += 1
 
-        print(f"Skipped {skipped} parameters during initialisation")
-        print(f"Built waveflow with squeezed height {hp.h} and receptive field {self.receptive_field}")
+        if verbose:
+            print(f"Skipped {skipped} parameters during initialisation")
+            print(f"Built waveflow with squeezed height {hp.h} and receptive field {self.receptive_field}")
 
     def forward(self, x, c, squeezed=False):
+        """
+        Forward pass of the waveflow model ( z = f(x) )
+
+        Parameters
+        ----------
+
+        x: Tensor
+            Signal to be transformed
+
+        c: Tensor
+            Conditioning signal
+
+        squeeze: bool
+            Boolean to define weither x.shape = BxN or x.shape = Bx1xHxW
+
+        Returns
+        -------
+
+        x: Tensor
+            Transformed signal
+
+        global_mean: Tensor
+            Transformed mean
+
+        global_logvar: Tensor
+            Transformed logvar
+
+        """
         if not squeezed:
             x = x.reshape(x.shape[0], 1, x.shape[-1] // hp.h, -1).transpose(2,3)
             c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
@@ -222,6 +328,10 @@ class WaveFlow(nn.Module):
         return x, global_mean, global_logvar
 
     def loss(self, x, c):
+        """
+        Negative log likelihood loss implementation
+        """
+
         z, mean, logvar = self.forward(x,c)
       
         loss = torch.mean(z ** 2 - logvar)
@@ -229,7 +339,26 @@ class WaveFlow(nn.Module):
         return z, mean, logvar, loss
 
     def synthesize(self, c, temp=1.0):
+        """
+        Reverse pass of the waveflow model ( x = f-1(x) )
+        Synthesis of a signal given a condition
 
+        Parameters
+        ----------
+
+        c: Tensor
+            Conditioning signal
+        
+        temp: float
+            Variance (or temperature) of the input noise
+
+        Returns
+        -------
+
+        z: Tensor
+            Synthesized signal
+
+        """
         c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
         z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(c.device)
     
@@ -254,6 +383,32 @@ class WaveFlow(nn.Module):
 
 
     def synthesize_fast(self, c, temp=1.0):
+        """
+        Reverse pass of the waveflow model ( x = f-1(x) )
+        Synthesis of a signal given a condition
+
+        This method uses cached convolution to optimize the memory usage and
+        the generation speed.
+
+        ONLY USE DURING EVALUATION AS IT MODIFIES INTERNAL CONVOLUTIONS AND
+        MAY BREAK TRAINING
+
+        Parameters
+        ----------
+
+        c: Tensor
+            Conditioning signal
+        
+        temp: float
+            Variance (or temperature) of the input noise
+
+        Returns
+        -------
+
+        z: Tensor
+            Synthesized signal
+
+        """
         c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
         z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(c.device)
         z = (z * temp).type(c.dtype)

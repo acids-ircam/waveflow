@@ -26,7 +26,6 @@ class Trainer:
 
         self.step         = step
         self.batch_size   = batch_size
-        self.batch_warmup = batch_warmup
         self.backup_every = backup_every
         self.image_every  = image_every
         self.resume       = resume
@@ -92,13 +91,6 @@ class Trainer:
                     for p in opt.param_groups:
                         p["lr"] = self.lr[current_step]
 
-                # HYPER CONVERGENCE ############################################
-                if current_step < self.batch_warmup:
-                    data = [d[0:,...] for d in data]
-                    for opt in self.optim:
-                        for p in opt.param_groups:
-                            p["lr"] = 1e-1
-
                 # UPLOAD DATA TO DEVICE ########################################
                 for i in range(len(data)):
                     data[i] = data[i].to(self.device)
@@ -133,6 +125,5 @@ parser.add_argument("--backup-every", type=int, default=100, help="Do a backup e
 parser.add_argument("--image-every", type=int, default=100, help="Do a image every...")
 parser.add_argument("--resume", type=str, default=None, help="Pretrained model to resume")
 parser.add_argument("--name", type=str, default="untitled", help="name of the session")
-parser.add_argument("--batch-warmup", type=int, default=-1, help="Train model with high lr and only 1 bs")
 parser.add_argument("dataset", type=str, help="Folder containing the dataset")
 args = parser.parse_args()
