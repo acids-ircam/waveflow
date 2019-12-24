@@ -231,9 +231,9 @@ class WaveFlow(nn.Module):
     def synthesize(self, c, temp=1.0):
 
         c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
-        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(c.device)
+        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).type(c.dtype).to(c.device)
     
-        z = (z * temp).type(c.dtype)
+        z = (z * temp)
 
         for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
             z = full_flip(z) if i > 4 else half_flip(z)
@@ -255,8 +255,8 @@ class WaveFlow(nn.Module):
 
     def synthesize_fast(self, c, temp=1.0):
         c = c.reshape(c.shape[0], c.shape[1], c.shape[-1] // hp.h, -1).transpose(2,3)
-        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).to(c.device)
-        z = (z * temp).type(c.dtype)
+        z = torch.randn(c.shape[0], 1, c.shape[2], c.shape[3]).type(c.dtype).to(c.device)
+        z = (z * temp)
 
 
         for i,flow in enumerate(tqdm(self.flows[::-1], desc="Iterating overs flows")):
